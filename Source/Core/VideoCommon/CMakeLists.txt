@@ -289,6 +289,16 @@ if(FFmpeg_FOUND)
   endif()
 endif()
 
+if(ENABLE_VR)
+  target_sources(videocommon PRIVATE
+    VR/VRManager.cpp
+    VR/VRManager.h
+  )
+  target_link_libraries(videocommon PRIVATE
+    openxr-headers
+  )
+endif()
+
 if(MSVC)
   # Add precompiled header
   target_link_libraries(videocommon PRIVATE use_pch)

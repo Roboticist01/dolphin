@@ -169,6 +169,11 @@ void VideoConfig::Refresh()
   bStereoSwapEyes = Config::Get(Config::GFX_STEREO_SWAP_EYES);
   bStereoEFBMonoDepth = Config::Get(Config::GFX_STEREO_EFB_MONO_DEPTH);
 
+  bVREnabled = Config::Get(Config::GFX_VR_ENABLED);
+  fVRScreenDistance = Config::Get(Config::GFX_VR_SCREEN_DISTANCE);
+  fVRScreenSize = Config::Get(Config::GFX_VR_SCREEN_SIZE);
+  bVRScreenCurved = Config::Get(Config::GFX_VR_SCREEN_CURVED);
+
   bEFBAccessEnable = Config::Get(Config::GFX_HACK_EFB_ACCESS_ENABLE);
   bEFBAccessDeferInvalidation = Config::Get(Config::GFX_HACK_EFB_DEFER_INVALIDATION);
   bBBoxEnable = Config::Get(Config::GFX_HACK_BBOX_ENABLE);

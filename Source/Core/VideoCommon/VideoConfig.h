@@ -315,6 +315,12 @@ struct VideoConfig final
   bool bStereoSwapEyes = false;
   bool bStereoEFBMonoDepth = false;
 
+  // VR
+  bool bVREnabled = false;
+  float fVRScreenDistance = 2.0f;
+  float fVRScreenSize = 4.0f;
+  bool bVRScreenCurved = false;
+
   // D3D only config, mostly to be merged into the above
   int iAdapter = 0;
 

@@ -181,6 +181,12 @@ const Info<bool> GFX_STEREO_EFB_MONO_DEPTH{{System::GFX, "Stereoscopy", "StereoE
 const Info<float> GFX_STEREO_DEPTH_PERCENTAGE{{System::GFX, "Stereoscopy", "StereoDepthPercentage"},
                                               100};
 
+// VR Settings
+const Info<bool> GFX_VR_ENABLED{{System::GFX, "VR", "VREnabled"}, false};
+const Info<float> GFX_VR_SCREEN_DISTANCE{{System::GFX, "VR", "ScreenDistance"}, 2.0f};
+const Info<float> GFX_VR_SCREEN_SIZE{{System::GFX, "VR", "ScreenSize"}, 4.0f};
+const Info<bool> GFX_VR_SCREEN_CURVED{{System::GFX, "VR", "ScreenCurved"}, false};
+
 // Graphics.Hacks
 
 const Info<bool> GFX_HACK_EFB_ACCESS_ENABLE{{System::GFX, "Hacks", "EFBAccessEnable"}, false};

@@ -8,14 +8,16 @@
 #include <algorithm>
 #include <cstring>
 
-#define XR_USE_GRAPHICS_API_OPENGL
+// OpenXR platform defines
 #ifdef _WIN32
 #define XR_USE_PLATFORM_WIN32
+#define XR_USE_GRAPHICS_API_OPENGL
 #elif defined(__ANDROID__)
 #define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_OPENGL_ES
 #else
 #define XR_USE_PLATFORM_XLIB
+#define XR_USE_GRAPHICS_API_OPENGL
 #endif
 
 #ifdef ENABLE_VULKAN
@@ -29,6 +31,24 @@
 #include "Common/MsgHandler.h"
 #include "VideoCommon/AbstractGfx.h"
 #include "VideoCommon/AbstractTexture.h"
+#include "VideoCommon/VideoConfig.h"
+
+// Backend-specific includes
+#ifdef HAS_OPENGL
+#include "VideoBackends/OGL/OGLGfx.h"
+#include "Common/GL/GLContext.h"
+#ifdef _WIN32
+#include "Common/GL/GLInterface/WGL.h"
+#elif !defined(__ANDROID__)
+#include "Common/GL/GLInterface/GLX.h"
+#endif
+#endif
+
+#ifdef ENABLE_VULKAN
+#include "VideoBackends/Vulkan/VKGfx.h"
+#include "VideoBackends/Vulkan/VulkanContext.h"
+extern std::unique_ptr<Vulkan::VulkanContext> g_vulkan_context;
+#endif
 
 namespace VideoCommon
 {
@@ -136,15 +156,27 @@ bool VRManager::CreateInstance()
     INFO_LOG_FMT(VIDEO, "  {}", ext.extensionName);
   }
 
-  // Request required extensions
+  // Request required extensions based on graphics API
   std::vector<const char*> requested_extensions;
 
-#if defined(XR_USE_GRAPHICS_API_OPENGL) && defined(XR_USE_PLATFORM_XLIB)
-  requested_extensions.push_back("XR_KHR_opengl_enable");
-#elif defined(XR_USE_GRAPHICS_API_OPENGL) && defined(_WIN32)
-  requested_extensions.push_back("XR_KHR_opengl_enable");
-#elif defined(XR_USE_GRAPHICS_API_VULKAN)
-  requested_extensions.push_back("XR_KHR_vulkan_enable");
+  APIType api = g_backend_info.api_type;
+
+#ifdef HAS_OPENGL
+  if (api == APIType::OpenGL)
+  {
+#if defined(XR_USE_PLATFORM_XLIB)
+    requested_extensions.push_back("XR_KHR_opengl_enable");
+#elif defined(_WIN32)
+    requested_extensions.push_back("XR_KHR_opengl_enable");
+#endif
+  }
+#endif
+
+#ifdef ENABLE_VULKAN
+  if (api == APIType::Vulkan)
+  {
+    requested_extensions.push_back("XR_KHR_vulkan_enable");
+  }
 #endif
 
   // Create instance
@@ -171,21 +203,99 @@ bool VRManager::CreateInstance()
 
 bool VRManager::CreateSession(AbstractGfx* gfx)
 {
-  // TODO: Set up graphics binding based on the backend (OpenGL/Vulkan)
-  // For now, we'll create a placeholder session creation
+  APIType api = g_backend_info.api_type;
+
+#ifdef HAS_OPENGL
+  if (api == APIType::OpenGL)
+  {
+    return CreateOpenGLSession(gfx);
+  }
+#endif
+
+#ifdef ENABLE_VULKAN
+  if (api == APIType::Vulkan)
+  {
+    return CreateVulkanSession(gfx);
+  }
+#endif
+
+  ERROR_LOG_FMT(VIDEO, "Unsupported graphics API for VR");
+  return false;
+}
+
+#ifdef HAS_OPENGL
+bool VRManager::CreateOpenGLSession(AbstractGfx* gfx)
+{
+#if defined(_WIN32)
+  auto* ogl_gfx = static_cast<OGL::OGLGfx*>(gfx);
+  GLContext* gl_context = ogl_gfx->GetMainGLContext();
+  auto* wgl_context = static_cast<GLContextWGL*>(gl_context);
+
+  // Get WGL context info
+  XrGraphicsBindingOpenGLWin32KHR graphics_binding{XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
+  graphics_binding.hDC = wglGetCurrentDC();
+  graphics_binding.hGLRC = wglGetCurrentContext();
 
   XrSessionCreateInfo session_info{XR_TYPE_SESSION_CREATE_INFO};
+  session_info.next = &graphics_binding;
   session_info.systemId = m_system_id;
-
-  // Graphics binding will be added here based on backend
-  // This is a placeholder - we'll implement the actual graphics binding next
 
   XR_CHECK(xrCreateSession(m_instance, &session_info, &m_session), "xrCreateSession");
 
-  INFO_LOG_FMT(VIDEO, "OpenXR session created");
+#elif defined(__linux__) && !defined(__ANDROID__)
+  auto* ogl_gfx = static_cast<OGL::OGLGfx*>(gfx);
+  GLContext* gl_context = ogl_gfx->GetMainGLContext();
+  auto* glx_context = static_cast<GLContextGLX*>(gl_context);
 
+  XrGraphicsBindingOpenGLXlibKHR graphics_binding{XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
+  graphics_binding.xDisplay = glXGetCurrentDisplay();
+  graphics_binding.visualid = 0;  // Can be 0 for off-screen contexts
+  graphics_binding.glxFBConfig = 0;  // Can be 0 for off-screen contexts
+  graphics_binding.glxDrawable = glXGetCurrentDrawable();
+  graphics_binding.glxContext = glXGetCurrentContext();
+
+  XrSessionCreateInfo session_info{XR_TYPE_SESSION_CREATE_INFO};
+  session_info.next = &graphics_binding;
+  session_info.systemId = m_system_id;
+
+  XR_CHECK(xrCreateSession(m_instance, &session_info, &m_session), "xrCreateSession");
+
+#else
+  ERROR_LOG_FMT(VIDEO, "OpenGL VR not supported on this platform");
+  return false;
+#endif
+
+  INFO_LOG_FMT(VIDEO, "OpenXR OpenGL session created");
   return true;
 }
+#endif
+
+#ifdef ENABLE_VULKAN
+bool VRManager::CreateVulkanSession(AbstractGfx* gfx)
+{
+  if (!g_vulkan_context)
+  {
+    ERROR_LOG_FMT(VIDEO, "Vulkan context not available");
+    return false;
+  }
+
+  XrGraphicsBindingVulkanKHR graphics_binding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
+  graphics_binding.instance = g_vulkan_context->GetVulkanInstance();
+  graphics_binding.physicalDevice = g_vulkan_context->GetPhysicalDevice();
+  graphics_binding.device = g_vulkan_context->GetDevice();
+  graphics_binding.queueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
+  graphics_binding.queueIndex = 0;
+
+  XrSessionCreateInfo session_info{XR_TYPE_SESSION_CREATE_INFO};
+  session_info.next = &graphics_binding;
+  session_info.systemId = m_system_id;
+
+  XR_CHECK(xrCreateSession(m_instance, &session_info, &m_session), "xrCreateSession");
+
+  INFO_LOG_FMT(VIDEO, "OpenXR Vulkan session created");
+  return true;
+}
+#endif
 
 bool VRManager::CreateReferenceSpace()
 {
@@ -215,14 +325,27 @@ bool VRManager::CreateSwapchains()
     return false;
   }
 
-  // TODO: Choose format based on backend
-  int64_t chosen_format = formats[0];
+  // Choose appropriate format based on API
+  m_swapchain_format = formats[0];
+  APIType api = g_backend_info.api_type;
+
+#ifdef HAS_OPENGL
+  if (api == APIType::OpenGL)
+  {
+    // Prefer GL_RGBA8 or GL_SRGB8_ALPHA8
+    for (int64_t fmt : formats)
+    {
+      if (fmt == 0x8058 || fmt == 0x8C43)  // GL_RGBA8 or GL_SRGB8_ALPHA8
+      {
+        m_swapchain_format = fmt;
+        break;
+      }
+    }
+  }
+#endif
 
   // Get recommended render size
   XrViewConfigurationType view_type = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-  XrSystemProperties system_props{XR_TYPE_SYSTEM_PROPERTIES};
-  xrGetSystemProperties(m_instance, m_system_id, &system_props);
-
   uint32_t view_count = 0;
   xrEnumerateViewConfigurationViews(m_instance, m_system_id, view_type, 0, &view_count, nullptr);
   std::vector<XrViewConfigurationView> config_views(view_count,
@@ -245,8 +368,10 @@ bool VRManager::CreateSwapchains()
   for (int eye = 0; eye < 2; eye++)
   {
     XrSwapchainCreateInfo swapchain_info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
-    swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-    swapchain_info.format = chosen_format;
+    swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
+                                 XR_SWAPCHAIN_USAGE_SAMPLED_BIT |
+                                 XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+    swapchain_info.format = m_swapchain_format;
     swapchain_info.sampleCount = 1;
     swapchain_info.width = m_swapchain_width;
     swapchain_info.height = m_swapchain_height;
@@ -256,6 +381,42 @@ bool VRManager::CreateSwapchains()
 
     XR_CHECK(xrCreateSwapchain(m_session, &swapchain_info, &m_swapchains[eye]),
              "xrCreateSwapchain");
+
+    // Enumerate swapchain images
+    uint32_t image_count = 0;
+    xrEnumerateSwapchainImages(m_swapchains[eye], 0, &image_count, nullptr);
+
+#ifdef HAS_OPENGL
+    if (api == APIType::OpenGL)
+    {
+      std::vector<XrSwapchainImageOpenGLKHR> images(image_count,
+                                                      {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
+      xrEnumerateSwapchainImages(m_swapchains[eye], image_count, &image_count,
+                                  reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
+
+      m_swapchain_images[eye].clear();
+      for (const auto& img : images)
+      {
+        m_swapchain_images[eye].push_back(img.image);
+      }
+    }
+#endif
+
+#ifdef ENABLE_VULKAN
+    if (api == APIType::Vulkan)
+    {
+      std::vector<XrSwapchainImageVulkanKHR> images(image_count,
+                                                      {XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR});
+      xrEnumerateSwapchainImages(m_swapchains[eye], image_count, &image_count,
+                                  reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
+
+      m_swapchain_images[eye].clear();
+      for (const auto& img : images)
+      {
+        m_swapchain_images[eye].push_back(static_cast<u32>(reinterpret_cast<uintptr_t>(img.image)));
+      }
+    }
+#endif
   }
 
   INFO_LOG_FMT(VIDEO, "OpenXR swapchains created");
@@ -309,27 +470,121 @@ bool VRManager::BeginFrame()
     return false;
   }
 
+  // Locate views
+  XrViewLocateInfo locate_info{XR_TYPE_VIEW_LOCATE_INFO};
+  locate_info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+  locate_info.displayTime = m_frame_state_predicted_display_time;
+  locate_info.space = m_reference_space;
+
+  XrViewState view_state{XR_TYPE_VIEW_STATE};
+  uint32_t view_count = 2;
+  XrView views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
+
+  xrLocateViews(m_session, &locate_info, &view_state, view_count, &view_count, views);
+
+  // Store view info for rendering
+  for (int i = 0; i < 2; i++)
+  {
+    m_views[i].position[0] = views[i].pose.position.x;
+    m_views[i].position[1] = views[i].pose.position.y;
+    m_views[i].position[2] = views[i].pose.position.z;
+    m_views[i].orientation[0] = views[i].pose.orientation.x;
+    m_views[i].orientation[1] = views[i].pose.orientation.y;
+    m_views[i].orientation[2] = views[i].pose.orientation.z;
+    m_views[i].orientation[3] = views[i].pose.orientation.w;
+    m_views[i].fov_left = views[i].fov.angleLeft;
+    m_views[i].fov_right = views[i].fov.angleRight;
+    m_views[i].fov_up = views[i].fov.angleUp;
+    m_views[i].fov_down = views[i].fov.angleDown;
+  }
+
   return m_should_render;
 }
 
 void VRManager::SubmitFrame(AbstractTexture* left_eye, AbstractTexture* right_eye)
 {
-  // TODO: Implement frame submission
-  // This will copy the left_eye and right_eye textures to the VR swapchains
-  // and submit them to the compositor
+  if (!m_initialized || !m_session || !m_should_render)
+    return;
+
+  // Copy left eye texture to swapchain
+  if (left_eye)
+    CopyTextureToSwapchain(left_eye, 0);
+
+  // Copy right eye texture to swapchain
+  if (right_eye)
+    CopyTextureToSwapchain(right_eye, 1);
+
+  // Create composition layers
+  XrCompositionLayerProjectionView projection_views[2] = {
+      {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
+      {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
+
+  for (int eye = 0; eye < 2; eye++)
+  {
+    projection_views[eye].pose.position.x = m_views[eye].position[0];
+    projection_views[eye].pose.position.y = m_views[eye].position[1];
+    projection_views[eye].pose.position.z = m_views[eye].position[2];
+    projection_views[eye].pose.orientation.x = m_views[eye].orientation[0];
+    projection_views[eye].pose.orientation.y = m_views[eye].orientation[1];
+    projection_views[eye].pose.orientation.z = m_views[eye].orientation[2];
+    projection_views[eye].pose.orientation.w = m_views[eye].orientation[3];
+    projection_views[eye].fov.angleLeft = m_views[eye].fov_left;
+    projection_views[eye].fov.angleRight = m_views[eye].fov_right;
+    projection_views[eye].fov.angleUp = m_views[eye].fov_up;
+    projection_views[eye].fov.angleDown = m_views[eye].fov_down;
+
+    projection_views[eye].subImage.swapchain = m_swapchains[eye];
+    projection_views[eye].subImage.imageRect.offset = {0, 0};
+    projection_views[eye].subImage.imageRect.extent = {static_cast<int32_t>(m_swapchain_width),
+                                                        static_cast<int32_t>(m_swapchain_height)};
+    projection_views[eye].subImage.imageArrayIndex = 0;
+  }
+
+  XrCompositionLayerProjection projection_layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+  projection_layer.space = m_reference_space;
+  projection_layer.viewCount = 2;
+  projection_layer.views = projection_views;
+
+  const XrCompositionLayerBaseHeader* layers[] = {
+      reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection_layer)};
+
+  XrFrameEndInfo end_info{XR_TYPE_FRAME_END_INFO};
+  end_info.displayTime = m_frame_state_predicted_display_time;
+  end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+  end_info.layerCount = 1;
+  end_info.layers = layers;
+
+  xrEndFrame(m_session, &end_info);
 }
 
 void VRManager::EndFrame()
 {
-  if (!m_initialized || !m_session)
+  // Frame end is handled in SubmitFrame
+}
+
+void VRManager::CopyTextureToSwapchain(AbstractTexture* src, int eye_index)
+{
+  if (!src || eye_index < 0 || eye_index >= 2)
     return;
 
-  // End frame
-  XrFrameEndInfo end_info{XR_TYPE_FRAME_END_INFO};
-  end_info.displayTime = m_frame_state_predicted_display_time;
-  end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+  // Acquire swapchain image
+  XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+  uint32_t image_index = 0;
+  xrAcquireSwapchainImage(m_swapchains[eye_index], &acquire_info, &image_index);
 
-  xrEndFrame(m_session, &end_info);
+  // Wait for swapchain image to be ready
+  XrSwapchainImageWaitInfo wait_info{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+  wait_info.timeout = XR_INFINITE_DURATION;
+  xrWaitSwapchainImage(m_swapchains[eye_index], &wait_info);
+
+  // TODO: Implement actual texture copy using graphics API
+  // For OpenGL: use glBlitFramebuffer or glCopyImageSubData
+  // For Vulkan: use vkCmdBlitImage or vkCmdCopyImage
+  // This requires creating framebuffers/image views for the swapchain images
+
+  // Release swapchain image
+  XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+  xrReleaseSwapchainImage(m_swapchains[eye_index], &release_info);
 }
 
 void VRManager::PollEvents()

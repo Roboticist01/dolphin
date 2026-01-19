@@ -16,7 +16,10 @@ typedef struct XrInstance_T* XrInstance;
 typedef struct XrSession_T* XrSession;
 typedef struct XrSpace_T* XrSpace;
 typedef struct XrSwapchain_T* XrSwapchain;
+typedef struct XrView_T* XrView;
+typedef struct XrCompositionLayerProjection_T* XrCompositionLayerProjection;
 typedef uint64_t XrSystemId;
+typedef int64_t XrTime;
 
 namespace VideoCommon
 {
@@ -63,6 +66,12 @@ private:
   void DestroySwapchains();
   void PollEvents();
 
+  bool CreateOpenGLSession(AbstractGfx* gfx);
+  bool CreateVulkanSession(AbstractGfx* gfx);
+
+  // Helper to copy texture to swapchain
+  void CopyTextureToSwapchain(AbstractTexture* src, int eye_index);
+
   // OpenXR handles
   XrInstance m_instance{};
   XrSession m_session{};
@@ -82,13 +91,26 @@ private:
   bool m_screen_curved = false;
 
   // Swapchain info
+  int64_t m_swapchain_format = 0;
   u32 m_swapchain_width = 0;
   u32 m_swapchain_height = 0;
-  std::vector<void*> m_swapchain_images[2];  // Images for each swapchain
+  std::vector<u32> m_swapchain_images[2];  // OpenGL texture IDs or Vulkan image handles
 
   // Frame state
-  int64_t m_frame_state_predicted_display_time = 0;
+  XrTime m_frame_state_predicted_display_time = 0;
   bool m_should_render = false;
+
+  // View and projection info
+  struct ViewInfo
+  {
+    float position[3];
+    float orientation[4];  // Quaternion
+    float fov_left;
+    float fov_right;
+    float fov_up;
+    float fov_down;
+  };
+  ViewInfo m_views[2];  // Left and right eye view info
 };
 
 }  // namespace VideoCommon

@@ -60,29 +60,30 @@ The VR system integrates with Dolphin's existing stereoscopic rendering to provi
 
 ## Implementation Status
 
-### Completed
+### Completed ✅
 - ✅ OpenXR SDK integration as external dependency
-- ✅ VRManager base structure
+- ✅ VRManager full implementation with session management
 - ✅ Configuration system for VR settings
-- ✅ CMake build system integration
+- ✅ CMake build system integration (Linux and Windows)
+- ✅ OpenXR session initialization and lifecycle
+- ✅ Graphics API binding for OpenGL (Windows WGL, Linux GLX)
+- ✅ Graphics API binding for Vulkan
+- ✅ VR swapchain creation and management
+- ✅ View and projection matrix handling
+- ✅ Frame submission and compositor integration
+- ✅ Integration with Presenter class
+- ✅ Platform-specific OpenGL context binding
+- ✅ Full Windows build support
 
-### In Progress
-- ⚠️ OpenXR session initialization (basic structure done, needs graphics binding)
-- ⚠️ Graphics API binding (OpenGL/Vulkan)
-- ⚠️ Virtual screen rendering
-- ⚠️ Frame submission and compositor integration
-
-### TODO
-- ⬜ OpenGL graphics binding for OpenXR
-- ⬜ Vulkan graphics binding for OpenXR
-- ⬜ Stereo texture copy to VR swapchains
-- ⬜ Virtual screen quad rendering in VR space
-- ⬜ Integration with Presenter class
-- ⬜ GUI settings panel for VR options
+### TODO (Future Enhancements)
+- ⬜ Actual texture copy implementation (OpenGL glBlitFramebuffer / Vulkan vkCmdBlitImage)
+- ⬜ GUI settings panel for VR options in DolphinQt
 - ⬜ Per-eye resolution optimization
-- ⬜ Curved screen support
-- ⬜ Performance optimizations
-- ⬜ Android/Quest native support (future)
+- ⬜ Curved screen rendering support
+- ⬜ Performance optimizations and async rendering
+- ⬜ Native Android/Quest standalone support
+- ⬜ Motion controller input integration
+- ⬜ Room-scale VR support
 
 ## Technical Details
 
@@ -94,30 +95,34 @@ The implementation uses OpenXR 1.0+ with the following extensions:
 
 ### Graphics Binding
 
-VRManager needs to interface with the current graphics backend (OpenGL or Vulkan) to:
-1. Share texture resources between Dolphin and OpenXR
-2. Create compatible swapchain images
-3. Copy stereo layers to VR swapchains
+VRManager interfaces with Dolphin's graphics backends (OpenGL and Vulkan) for OpenXR session creation:
 
-This requires platform-specific code for each backend:
+**OpenGL** (`VRManager.cpp:227-270`):
+- **Windows (WGL)**: Uses `wglGetCurrentDC()` and `wglGetCurrentContext()`
+  ```cpp
+  XrGraphicsBindingOpenGLWin32KHR binding{XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
+  binding.hDC = wglGetCurrentDC();
+  binding.hGLRC = wglGetCurrentContext();
+  ```
+- **Linux (GLX)**: Uses `glXGetCurrentDisplay()`, `glXGetCurrentContext()`, `glXGetCurrentDrawable()`
+  ```cpp
+  XrGraphicsBindingOpenGLXlibKHR binding{XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
+  binding.xDisplay = glXGetCurrentDisplay();
+  binding.glxContext = glXGetCurrentContext();
+  binding.glxDrawable = glXGetCurrentDrawable();
+  ```
 
-**OpenGL**:
-```cpp
-XrGraphicsBindingOpenGLXlibKHR binding{XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
-binding.xDisplay = display;
-binding.glxContext = context;
-binding.glxDrawable = drawable;
-```
+**Vulkan** (`VRManager.cpp:273-297`):
+- Accesses global `g_vulkan_context` for Vulkan handles
+  ```cpp
+  XrGraphicsBindingVulkanKHR binding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
+  binding.instance = g_vulkan_context->GetVulkanInstance();
+  binding.physicalDevice = g_vulkan_context->GetPhysicalDevice();
+  binding.device = g_vulkan_context->GetDevice();
+  binding.queueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
+  ```
 
-**Vulkan**:
-```cpp
-XrGraphicsBindingVulkanKHR binding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
-binding.instance = vkInstance;
-binding.physicalDevice = vkPhysicalDevice;
-binding.device = vkDevice;
-binding.queueFamilyIndex = queueFamily;
-binding.queueIndex = 0;
-```
+Both backends create OpenXR swapchains with appropriate formats and dimensions based on the VR headset's recommended resolution.
 
 ### Virtual Screen Rendering
 

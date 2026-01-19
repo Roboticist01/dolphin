@@ -24,6 +24,9 @@ namespace VideoCommon
 {
 class OnScreenUI;
 class PostProcessing;
+#ifdef HAS_OPENXR
+class VRManager;
+#endif
 
 // Presenter is a class that deals with putting the final XFB on the screen.
 // It also handles the ImGui UI and post-processing.
@@ -155,6 +158,10 @@ private:
 
   std::unique_ptr<VideoCommon::PostProcessing> m_post_processor;
   std::unique_ptr<VideoCommon::OnScreenUI> m_onscreen_ui;
+
+#ifdef HAS_OPENXR
+  std::unique_ptr<VideoCommon::VRManager> m_vr_manager;
+#endif
 
   u64 m_frame_count = 0;
   u64 m_present_count = 0;

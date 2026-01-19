@@ -24,6 +24,10 @@
 #include "VideoCommon/VideoEvents.h"
 #include "VideoCommon/Widescreen.h"
 
+#ifdef HAS_OPENXR
+#include "VideoCommon/VR/VRManager.h"
+#endif
+
 std::unique_ptr<VideoCommon::Presenter> g_presenter;
 
 namespace VideoCommon
@@ -132,6 +136,27 @@ bool Presenter::Initialize()
     g_gfx->BindBackbuffer({{0.0f, 0.0f, 0.0f, 1.0f}});
     g_gfx->PresentBackbuffer();
   }
+
+#ifdef HAS_OPENXR
+  // Initialize VR if enabled
+  if (g_ActiveConfig.bVREnabled)
+  {
+    m_vr_manager = std::make_unique<VRManager>();
+    if (!m_vr_manager->Initialize(g_gfx.get()))
+    {
+      WARN_LOG_FMT(VIDEO, "Failed to initialize VR, disabling VR support");
+      m_vr_manager.reset();
+    }
+    else
+    {
+      INFO_LOG_FMT(VIDEO, "VR initialized successfully");
+      // Update configuration from VR recommendations
+      m_vr_manager->SetVirtualScreenDistance(g_ActiveConfig.fVRScreenDistance);
+      m_vr_manager->SetVirtualScreenSize(g_ActiveConfig.fVRScreenSize,
+                                          g_ActiveConfig.fVRScreenSize * 9.0f / 16.0f);
+    }
+  }
+#endif
 
   return true;
 }
@@ -895,6 +920,25 @@ void Presenter::Present(PresentInfo* present_info)
     if (backbuffer_bound)
       m_onscreen_ui->DrawImGui();
   }
+
+  // Present to VR if enabled
+#ifdef HAS_OPENXR
+  if (m_vr_manager && m_vr_manager->IsInitialized() && m_xfb_entry)
+  {
+    // Begin VR frame
+    if (m_vr_manager->BeginFrame())
+    {
+      // For VR, we need the stereo layers from the EFB
+      // If stereo is enabled, the texture has 2 layers (0=left, 1=right)
+      // If stereo is disabled, we submit the same texture to both eyes
+      AbstractTexture* left_eye = m_xfb_entry->texture.get();
+      AbstractTexture* right_eye = m_xfb_entry->texture.get();
+
+      // Submit frame to VR
+      m_vr_manager->SubmitFrame(left_eye, right_eye);
+    }
+  }
+#endif
 
   // Present to the window system.
   {

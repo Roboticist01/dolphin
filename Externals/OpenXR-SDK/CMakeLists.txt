@@ -37,9 +37,25 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
   endif()
 endif()
 
-# Windows
+# Windows - dynamically load OpenXR loader or link against system library
 if(WIN32)
-  target_link_libraries(openxr-headers INTERFACE openxr_loader-1)
+  # Try to find OpenXR loader in system
+  find_library(OPENXR_LOADER openxr_loader
+    PATHS
+      "$ENV{ProgramFiles}/OpenXR-SDK/lib"
+      "$ENV{ProgramFiles\(x86\)}/OpenXR-SDK/lib"
+      "$ENV{OPENXR_SDK_DIR}/lib"
+    PATH_SUFFIXES lib x64 win64
+  )
+
+  if(OPENXR_LOADER)
+    message(STATUS "Found OpenXR loader for Windows: ${OPENXR_LOADER}")
+    target_link_libraries(openxr-headers INTERFACE ${OPENXR_LOADER})
+  else()
+    message(STATUS "OpenXR loader not found on Windows. Will use dynamic loading.")
+    message(STATUS "Install SteamVR or Oculus software for OpenXR runtime support.")
+    target_compile_definitions(openxr-headers INTERFACE XR_USE_DYNAMIC_LOADING)
+  endif()
 endif()
 
 # Define platform-specific graphics bindings

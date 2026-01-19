@@ -62,6 +62,7 @@
   <Import Project="$(ExternalsDir)xxhash\exports.props" />
   <Import Project="$(ExternalsDir)zlib-ng\exports.props" />
   <Import Project="$(ExternalsDir)zstd\exports.props" />
+  <Import Project="$(ExternalsDir)OpenXR-SDK\exports.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <PropertyGroup>

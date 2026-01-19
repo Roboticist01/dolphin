@@ -37,40 +37,15 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
   endif()
 endif()
 
-# Windows - dynamically load OpenXR loader or link against system library
-if(WIN32)
-  # Try to find OpenXR loader in system
-  find_library(OPENXR_LOADER openxr_loader
-    PATHS
-      "$ENV{ProgramFiles}/OpenXR-SDK/lib"
-      "$ENV{ProgramFiles\(x86\)}/OpenXR-SDK/lib"
-      "$ENV{OPENXR_SDK_DIR}/lib"
-    PATH_SUFFIXES lib x64 win64
-  )
+# Windows builds use Visual Studio project files, not CMake
+# OpenXR headers are provided via OpenXR-SDK.vcxproj
+# No additional configuration needed here for Windows
 
-  if(OPENXR_LOADER)
-    message(STATUS "Found OpenXR loader for Windows: ${OPENXR_LOADER}")
-    target_link_libraries(openxr-headers INTERFACE ${OPENXR_LOADER})
-  else()
-    message(STATUS "OpenXR loader not found on Windows. Will use dynamic loading.")
-    message(STATUS "Install SteamVR or Oculus software for OpenXR runtime support.")
-    target_compile_definitions(openxr-headers INTERFACE XR_USE_DYNAMIC_LOADING)
-  endif()
-endif()
-
-# Define platform-specific graphics bindings
+# Define platform-specific graphics bindings (Linux/macOS only - Windows uses .vcxproj)
 if(UNIX AND NOT APPLE)
   target_compile_definitions(openxr-headers INTERFACE XR_USE_PLATFORM_XLIB)
   target_compile_definitions(openxr-headers INTERFACE XR_USE_GRAPHICS_API_OPENGL)
   target_compile_definitions(openxr-headers INTERFACE XR_USE_GRAPHICS_API_VULKAN)
-endif()
-
-if(WIN32)
-  target_compile_definitions(openxr-headers INTERFACE XR_USE_PLATFORM_WIN32)
-  target_compile_definitions(openxr-headers INTERFACE XR_USE_GRAPHICS_API_OPENGL)
-  target_compile_definitions(openxr-headers INTERFACE XR_USE_GRAPHICS_API_VULKAN)
-  target_compile_definitions(openxr-headers INTERFACE XR_USE_GRAPHICS_API_D3D11)
-  target_compile_definitions(openxr-headers INTERFACE XR_USE_GRAPHICS_API_D3D12)
 endif()
 
 if(ANDROID)

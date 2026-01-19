@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ExternalsDir)OpenXR-SDK\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>HAS_OPENXR;XR_USE_PLATFORM_WIN32;XR_USE_GRAPHICS_API_OPENGL;XR_USE_GRAPHICS_API_VULKAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(ExternalsDir)OpenXR-SDK\OpenXR-SDK.vcxproj">
+      <Project>{e8b6c612-3e9f-4b3a-9c5e-1a2d8f4b3c5a}</Project>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

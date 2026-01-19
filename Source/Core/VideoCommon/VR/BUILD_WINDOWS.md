@@ -44,21 +44,16 @@ git checkout claude/add-quest-vr-support-02sU5
 git submodule update --init --recursive
 ```
 
-### Step 2: Generate Visual Studio Solution
+### Step 2: Open Visual Studio Solution
 
-Create a build directory and run CMake:
+Dolphin on Windows uses Visual Studio solution files (.sln), not CMake.
 
-```cmd
-mkdir build
-cd build
-cmake .. -G "Visual Studio 17 2022" -A x64 -DENABLE_VR=ON
-```
+1. Navigate to the `Source` directory
+2. Open `dolphin-emu.sln` in Visual Studio
 
-Options:
-- `-G "Visual Studio 17 2022"`: Use VS 2022 (use `"Visual Studio 16 2019"` for VS 2019)
-- `-A x64`: Build 64-bit version
-- `-DENABLE_VR=ON`: Enable VR support (default)
-- `-DENABLE_VR=OFF`: Disable VR support if not needed
+The OpenXR-SDK project is already included in the solution and will be built automatically.
+
+**VR is enabled by default** in Windows builds. The `HAS_OPENXR` preprocessor define is automatically set via the OpenXR-SDK exports.props file.
 
 ### Step 3: Build
 
@@ -69,22 +64,23 @@ Options:
 3. Right-click on `dolphin-emu` project → `Set as Startup Project`
 4. Press F7 to build or F5 to build and run
 
-#### Option B: Command Line
+#### Option B: Command Line (MSBuild)
 
+From the `Source` directory:
 ```cmd
-cmake --build . --config Release
+msbuild dolphin-emu.sln /p:Configuration=Release /p:Platform=x64
 ```
 
 For parallel build (faster):
 ```cmd
-cmake --build . --config Release --parallel
+msbuild dolphin-emu.sln /p:Configuration=Release /p:Platform=x64 /m
 ```
 
 ### Step 4: Run
 
 The built executable will be in:
-- Release: `build/Binaries/Release/Dolphin.exe`
-- Debug: `build/Binaries/Debug/Dolphin.exe`
+- Release: `Binary\x64\Dolphin.exe`
+- Debug: `Binary\x64-Debug\Dolphin.exe`
 
 ## Configuration
 

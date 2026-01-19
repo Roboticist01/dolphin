@@ -335,13 +335,15 @@ cd dolphin
 git checkout claude/add-quest-vr-support-02sU5
 git submodule update --init --recursive
 
-mkdir build
-cd build
-cmake .. -G "Visual Studio 17 2022" -A x64 -DENABLE_VR=ON
-cmake --build . --config Release
+cd Source
+# Open dolphin-emu.sln in Visual Studio 2019/2022
+# OR build from command line:
+msbuild dolphin-emu.sln /p:Configuration=Release /p:Platform=x64 /m
 
-Binaries\Release\Dolphin.exe
+Binary\x64\Dolphin.exe
 ```
+
+**Note:** Windows uses Visual Studio project files (.sln, .vcxproj), not CMake. VR is enabled by default via the OpenXR-SDK exports.props file.
 
 See `Source/Core/VideoCommon/VR/BUILD_WINDOWS.md` for detailed Windows instructions.
 

@@ -71,7 +71,7 @@ VRManager::~VRManager()
   Shutdown();
 }
 
-bool VRManager::Initialize(AbstractGfx* gfx)
+bool VRManager::Initialize(::AbstractGfx* gfx)
 {
   if (m_initialized)
     return true;
@@ -201,7 +201,7 @@ bool VRManager::CreateInstance()
   return true;
 }
 
-bool VRManager::CreateSession(AbstractGfx* gfx)
+bool VRManager::CreateSession(::AbstractGfx* gfx)
 {
   APIType api = g_backend_info.api_type;
 
@@ -224,7 +224,7 @@ bool VRManager::CreateSession(AbstractGfx* gfx)
 }
 
 #ifdef HAS_OPENGL
-bool VRManager::CreateOpenGLSession(AbstractGfx* gfx)
+bool VRManager::CreateOpenGLSession(::AbstractGfx* gfx)
 {
 #if defined(_WIN32)
   auto* ogl_gfx = static_cast<OGL::OGLGfx*>(gfx);
@@ -271,7 +271,7 @@ bool VRManager::CreateOpenGLSession(AbstractGfx* gfx)
 #endif
 
 #ifdef ENABLE_VULKAN
-bool VRManager::CreateVulkanSession(AbstractGfx* gfx)
+bool VRManager::CreateVulkanSession(::AbstractGfx* gfx)
 {
   if (!g_vulkan_context)
   {
@@ -501,7 +501,7 @@ bool VRManager::BeginFrame()
   return m_should_render;
 }
 
-void VRManager::SubmitFrame(AbstractTexture* left_eye, AbstractTexture* right_eye)
+void VRManager::SubmitFrame(::AbstractTexture* left_eye, ::AbstractTexture* right_eye)
 {
   if (!m_initialized || !m_session || !m_should_render)
     return;
@@ -562,7 +562,7 @@ void VRManager::EndFrame()
   // Frame end is handled in SubmitFrame
 }
 
-void VRManager::CopyTextureToSwapchain(AbstractTexture* src, int eye_index)
+void VRManager::CopyTextureToSwapchain(::AbstractTexture* src, int eye_index)
 {
   if (!src || eye_index < 0 || eye_index >= 2)
     return;

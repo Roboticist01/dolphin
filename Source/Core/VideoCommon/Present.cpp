@@ -840,7 +840,7 @@ std::tuple<int, int> Presenter::CalculateOutputDimensions(int width, int height,
 }
 
 void Presenter::RenderXFBToScreen(const MathUtil::Rectangle<int>& target_rc,
-                                  const AbstractTexture* source_texture,
+                                  const ::AbstractTexture* source_texture,
                                   const MathUtil::Rectangle<int>& source_rc)
 {
   if (g_ActiveConfig.stereo_mode == StereoMode::QuadBuffer &&
@@ -931,8 +931,8 @@ void Presenter::Present(PresentInfo* present_info)
       // For VR, we need the stereo layers from the EFB
       // If stereo is enabled, the texture has 2 layers (0=left, 1=right)
       // If stereo is disabled, we submit the same texture to both eyes
-      AbstractTexture* left_eye = m_xfb_entry->texture.get();
-      AbstractTexture* right_eye = m_xfb_entry->texture.get();
+      ::AbstractTexture* left_eye = m_xfb_entry->texture.get();
+      ::AbstractTexture* right_eye = m_xfb_entry->texture.get();
 
       // Submit frame to VR
       m_vr_manager->SubmitFrame(left_eye, right_eye);

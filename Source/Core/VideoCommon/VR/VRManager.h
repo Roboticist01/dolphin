@@ -21,10 +21,12 @@ typedef struct XrCompositionLayerProjection_T* XrCompositionLayerProjection;
 typedef uint64_t XrSystemId;
 typedef int64_t XrTime;
 
-namespace VideoCommon
-{
+// Forward declarations - these are in the global namespace
 class AbstractTexture;
 class AbstractGfx;
+
+namespace VideoCommon
+{
 
 // VRManager handles OpenXR integration for displaying Dolphin's stereoscopic output in VR
 class VRManager
@@ -34,7 +36,7 @@ public:
   ~VRManager();
 
   // Initialize OpenXR and create session
-  bool Initialize(AbstractGfx* gfx);
+  bool Initialize(::AbstractGfx* gfx);
 
   // Shutdown and cleanup OpenXR resources
   void Shutdown();
@@ -45,8 +47,8 @@ public:
 
   // Frame lifecycle
   bool BeginFrame();                          // Wait for VR compositor to be ready
-  void SubmitFrame(AbstractTexture* left_eye, // Submit stereo textures to VR
-                   AbstractTexture* right_eye);
+  void SubmitFrame(::AbstractTexture* left_eye, // Submit stereo textures to VR
+                   ::AbstractTexture* right_eye);
   void EndFrame();                            // Complete frame submission
 
   // Configuration
@@ -59,18 +61,18 @@ public:
 
 private:
   bool CreateInstance();
-  bool CreateSession(AbstractGfx* gfx);
+  bool CreateSession(::AbstractGfx* gfx);
   bool CreateSwapchains();
   bool CreateReferenceSpace();
 
   void DestroySwapchains();
   void PollEvents();
 
-  bool CreateOpenGLSession(AbstractGfx* gfx);
-  bool CreateVulkanSession(AbstractGfx* gfx);
+  bool CreateOpenGLSession(::AbstractGfx* gfx);
+  bool CreateVulkanSession(::AbstractGfx* gfx);
 
   // Helper to copy texture to swapchain
-  void CopyTextureToSwapchain(AbstractTexture* src, int eye_index);
+  void CopyTextureToSwapchain(::AbstractTexture* src, int eye_index);
 
   // OpenXR handles
   XrInstance m_instance{};
@@ -82,7 +84,7 @@ private:
   // State
   bool m_initialized = false;
   bool m_session_running = false;
-  AbstractGfx* m_gfx = nullptr;
+  ::AbstractGfx* m_gfx = nullptr;
 
   // Configuration
   float m_screen_distance = 2.0f;       // Distance in meters

@@ -3,29 +3,48 @@
 
 #ifdef HAS_OPENXR
 
-#include "VideoCommon/VR/VRManager.h"
-
 #include <algorithm>
 #include <cstring>
 
-// OpenXR platform defines
+// Platform-specific headers must be included BEFORE OpenXR platform header
+// because openxr_platform.h uses types from these headers
+
+// Note: XR_USE_PLATFORM_* and XR_USE_GRAPHICS_API_* are defined by CMake
+// We just need to include the right headers based on those definitions
+
+#ifdef XR_USE_PLATFORM_WIN32
+#include <windows.h>
+#endif
+
+#ifdef XR_USE_PLATFORM_XLIB
+#include <X11/Xlib.h>
+#endif
+
+#ifdef XR_USE_GRAPHICS_API_OPENGL
 #ifdef _WIN32
-#define XR_USE_PLATFORM_WIN32
-#define XR_USE_GRAPHICS_API_OPENGL
-#elif defined(__ANDROID__)
-#define XR_USE_PLATFORM_ANDROID
-#define XR_USE_GRAPHICS_API_OPENGL_ES
-#else
-#define XR_USE_PLATFORM_XLIB
-#define XR_USE_GRAPHICS_API_OPENGL
+#include <GL/gl.h>
+#elif !defined(__ANDROID__)
+#include <GL/glx.h>
+#endif
 #endif
 
-#ifdef ENABLE_VULKAN
-#define XR_USE_GRAPHICS_API_VULKAN
+#ifdef XR_USE_GRAPHICS_API_OPENGL_ES
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
 #endif
 
+// Always include Vulkan if the OpenXR Vulkan binding is enabled
+// (this is controlled by CMake, not ENABLE_VULKAN)
+#ifdef XR_USE_GRAPHICS_API_VULKAN
+#include <vulkan/vulkan.h>
+#endif
+
+// Now include OpenXR headers after platform headers
 #include <openxr.h>
 #include <openxr_platform.h>
+
+// Include VRManager header after OpenXR (since it includes openxr.h)
+#include "VideoCommon/VR/VRManager.h"
 
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
@@ -33,7 +52,7 @@
 #include "VideoCommon/AbstractTexture.h"
 #include "VideoCommon/VideoConfig.h"
 
-// Backend-specific includes
+// Backend-specific Dolphin includes
 #ifdef HAS_OPENGL
 #include "VideoBackends/OGL/OGLGfx.h"
 #include "Common/GL/GLContext.h"

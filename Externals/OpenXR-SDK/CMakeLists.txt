@@ -11,8 +11,7 @@ target_include_directories(openxr-headers
 # On Linux, link against the system OpenXR loader if available
 if(UNIX AND NOT APPLE AND NOT ANDROID)
   find_library(OPENXR_LOADER openxr_loader
-    PATHS /usr/lib /usr/local/lib
-    NO_DEFAULT_PATH
+    PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib
   )
 
   if(OPENXR_LOADER)
@@ -27,12 +26,12 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
         target_link_libraries(openxr-headers INTERFACE ${OPENXR_LIBRARIES})
         target_include_directories(openxr-headers INTERFACE ${OPENXR_INCLUDE_DIRS})
       else()
-        message(STATUS "OpenXR loader not found on system. Will use dynamic loading.")
-        target_compile_definitions(openxr-headers INTERFACE XR_USE_DYNAMIC_LOADING)
+        message(STATUS "OpenXR loader not found on system. Linking will fail.")
+        message(STATUS "To enable VR support, install: libopenxr-loader1 libopenxr-dev")
       endif()
     else()
-      message(STATUS "OpenXR loader not found on system. Will use dynamic loading.")
-      target_compile_definitions(openxr-headers INTERFACE XR_USE_DYNAMIC_LOADING)
+      message(STATUS "OpenXR loader not found on system. Linking will fail.")
+      message(STATUS "To enable VR support, install: libopenxr-loader1 libopenxr-dev")
     endif()
   endif()
 endif()

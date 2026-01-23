@@ -11,13 +11,12 @@
 #include "Common/CommonTypes.h"
 #include "Common/Matrix.h"
 
-// Forward declarations to avoid including OpenXR in header
+// Forward declarations for OpenXR handle types (these are pointers to opaque structs)
+// These must match the XR_DEFINE_HANDLE macro definitions in openxr.h
 typedef struct XrInstance_T* XrInstance;
 typedef struct XrSession_T* XrSession;
 typedef struct XrSpace_T* XrSpace;
 typedef struct XrSwapchain_T* XrSwapchain;
-typedef struct XrView_T* XrView;
-typedef struct XrCompositionLayerProjection_T* XrCompositionLayerProjection;
 typedef uint64_t XrSystemId;
 typedef int64_t XrTime;
 

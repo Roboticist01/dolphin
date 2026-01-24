@@ -297,6 +297,10 @@ if(ENABLE_VR)
   target_link_libraries(videocommon PRIVATE
     openxr-headers
   )
+  # VR code needs VulkanMemoryAllocator include path for Vulkan backend headers
+  target_include_directories(videocommon PRIVATE
+    ${CMAKE_SOURCE_DIR}/Externals/VulkanMemoryAllocator/include
+  )
 endif()
 
 if(MSVC)

@@ -391,6 +391,18 @@ bool VulkanContext::SelectInstanceExtensions(std::vector<const char*>* extension
     WARN_LOG_FMT(VIDEO, "Vulkan: Debug utils requested, but extension is not available.");
   }
 
+#if defined(HAS_OPENXR)
+  if(!AddExtension("VK_KHR_external_memory_fd", false)){
+    WARN_LOG_FMT(VIDEO, "OpenXR/Vulkan: Failed to load VK_KHR_external_memory_fd. A segfault may occur");
+  }
+  if(!AddExtension("VK_KHR_external_semaphore_fd", false)){
+    WARN_LOG_FMT(VIDEO, "OpenXR/Vulkan: Failed to load VK_KHR_external_semaphore_fd. A segfault may occur");
+  }
+  if(!AddExtension("VK_KHR_get_memory_requirements2", false)){
+    WARN_LOG_FMT(VIDEO, "OpenXR/Vulkan: Failed to load VK_KHR_get_memory_requirements2. A segfault may occur");
+  }
+#endif
+
   return true;
 }
 

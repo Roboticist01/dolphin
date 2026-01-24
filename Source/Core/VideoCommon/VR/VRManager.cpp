@@ -20,10 +20,19 @@
 #include <X11/Xlib.h>
 #endif
 
+// For Vulkan support, include Dolphin's VulkanLoader BEFORE OpenXR headers
+// VulkanLoader.h defines VK_NO_PROTOTYPES and includes vulkan/vulkan.h
+#ifdef HAS_VULKAN
+#include "VideoBackends/Vulkan/VulkanLoader.h"
+#endif
+
+// For OpenGL, we need GLX types for OpenXR but must avoid conflicts with Dolphin's GL headers
+// Only include the minimal GL types needed for OpenXR
 #ifdef XR_USE_GRAPHICS_API_OPENGL
 #ifdef _WIN32
 #include <GL/gl.h>
 #elif !defined(__ANDROID__)
+// For GLX types needed by OpenXR - included before Dolphin GL headers
 #include <GL/glx.h>
 #endif
 #endif
@@ -31,12 +40,6 @@
 #ifdef XR_USE_GRAPHICS_API_OPENGL_ES
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
-#endif
-
-// Always include Vulkan if the OpenXR Vulkan binding is enabled
-// (this is controlled by CMake, not ENABLE_VULKAN)
-#ifdef XR_USE_GRAPHICS_API_VULKAN
-#include <vulkan/vulkan.h>
 #endif
 
 // Now include OpenXR headers after platform headers
@@ -55,6 +58,7 @@
 // Backend-specific Dolphin includes
 #ifdef HAS_OPENGL
 #include "VideoBackends/OGL/OGLGfx.h"
+#include "VideoBackends/OGL/OGLTexture.h"
 #include "Common/GL/GLContext.h"
 #ifdef _WIN32
 #include "Common/GL/GLInterface/WGL.h"
@@ -63,10 +67,10 @@
 #endif
 #endif
 
-#ifdef ENABLE_VULKAN
-#include "VideoBackends/Vulkan/VKGfx.h"
+#ifdef HAS_VULKAN
+#include "VideoBackends/Vulkan/VKTexture.h"
 #include "VideoBackends/Vulkan/VulkanContext.h"
-extern std::unique_ptr<Vulkan::VulkanContext> g_vulkan_context;
+using Vulkan::g_vulkan_context;
 #endif
 
 namespace VideoCommon
@@ -191,12 +195,19 @@ bool VRManager::CreateInstance()
   }
 #endif
 
-#ifdef ENABLE_VULKAN
+#ifdef HAS_VULKAN
   if (api == APIType::Vulkan)
   {
     requested_extensions.push_back("XR_KHR_vulkan_enable");
+    INFO_LOG_FMT(VIDEO, "Requesting XR_KHR_vulkan_enable extension for Vulkan backend");
   }
 #endif
+
+  INFO_LOG_FMT(VIDEO, "Requesting {} OpenXR extensions", requested_extensions.size());
+  for (const auto* ext : requested_extensions)
+  {
+    INFO_LOG_FMT(VIDEO, "  Requesting: {}", ext);
+  }
 
   // Create instance
   XrInstanceCreateInfo create_info{XR_TYPE_INSTANCE_CREATE_INFO};
@@ -204,7 +215,7 @@ bool VRManager::CreateInstance()
   create_info.applicationInfo.applicationVersion = 1;
   std::strcpy(create_info.applicationInfo.engineName, "Dolphin");
   create_info.applicationInfo.engineVersion = 1;
-  create_info.applicationInfo.apiVersion = XR_VERSION_1_0;
+  create_info.applicationInfo.apiVersion = XR_API_VERSION_1_0;
   create_info.enabledExtensionCount = static_cast<uint32_t>(requested_extensions.size());
   create_info.enabledExtensionNames = requested_extensions.data();
 
@@ -231,7 +242,7 @@ bool VRManager::CreateSession(::AbstractGfx* gfx)
   }
 #endif
 
-#ifdef ENABLE_VULKAN
+#ifdef HAS_VULKAN
   if (api == APIType::Vulkan)
   {
     return CreateVulkanSession(gfx);
@@ -245,6 +256,27 @@ bool VRManager::CreateSession(::AbstractGfx* gfx)
 #ifdef HAS_OPENGL
 bool VRManager::CreateOpenGLSession(::AbstractGfx* gfx)
 {
+  // OpenXR requires calling xrGetOpenGLGraphicsRequirementsKHR before creating a session
+  PFN_xrGetOpenGLGraphicsRequirementsKHR xrGetOpenGLGraphicsRequirementsKHR = nullptr;
+  XrResult result = xrGetInstanceProcAddr(
+      m_instance, "xrGetOpenGLGraphicsRequirementsKHR",
+      reinterpret_cast<PFN_xrVoidFunction*>(&xrGetOpenGLGraphicsRequirementsKHR));
+  if (XR_FAILED(result) || !xrGetOpenGLGraphicsRequirementsKHR)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get xrGetOpenGLGraphicsRequirementsKHR function pointer");
+    return false;
+  }
+
+  XrGraphicsRequirementsOpenGLKHR graphics_requirements{XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_KHR};
+  XR_CHECK(xrGetOpenGLGraphicsRequirementsKHR(m_instance, m_system_id, &graphics_requirements),
+           "xrGetOpenGLGraphicsRequirementsKHR");
+
+  INFO_LOG_FMT(VIDEO, "OpenXR OpenGL requirements: min version {}.{}, max version {}.{}",
+               XR_VERSION_MAJOR(graphics_requirements.minApiVersionSupported),
+               XR_VERSION_MINOR(graphics_requirements.minApiVersionSupported),
+               XR_VERSION_MAJOR(graphics_requirements.maxApiVersionSupported),
+               XR_VERSION_MINOR(graphics_requirements.maxApiVersionSupported));
+
 #if defined(_WIN32)
   auto* ogl_gfx = static_cast<OGL::OGLGfx*>(gfx);
   GLContext* gl_context = ogl_gfx->GetMainGLContext();
@@ -266,12 +298,22 @@ bool VRManager::CreateOpenGLSession(::AbstractGfx* gfx)
   GLContext* gl_context = ogl_gfx->GetMainGLContext();
   auto* glx_context = static_cast<GLContextGLX*>(gl_context);
 
+  // Get visualid from the FBConfig
+  XVisualInfo* vi = glXGetVisualFromFBConfig(glx_context->GetDisplay(), glx_context->GetFBConfig());
+  if (!vi)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get XVisualInfo from FBConfig");
+    return false;
+  }
+  VisualID visual_id = vi->visualid;
+  XFree(vi);
+
   XrGraphicsBindingOpenGLXlibKHR graphics_binding{XR_TYPE_GRAPHICS_BINDING_OPENGL_XLIB_KHR};
-  graphics_binding.xDisplay = glXGetCurrentDisplay();
-  graphics_binding.visualid = 0;  // Can be 0 for off-screen contexts
-  graphics_binding.glxFBConfig = 0;  // Can be 0 for off-screen contexts
-  graphics_binding.glxDrawable = glXGetCurrentDrawable();
-  graphics_binding.glxContext = glXGetCurrentContext();
+  graphics_binding.xDisplay = glx_context->GetDisplay();
+  graphics_binding.visualid = static_cast<uint32_t>(visual_id);
+  graphics_binding.glxFBConfig = glx_context->GetFBConfig();
+  graphics_binding.glxDrawable = glx_context->GetDrawable();
+  graphics_binding.glxContext = glx_context->GetContext();
 
   XrSessionCreateInfo session_info{XR_TYPE_SESSION_CREATE_INFO};
   session_info.next = &graphics_binding;
@@ -289,7 +331,7 @@ bool VRManager::CreateOpenGLSession(::AbstractGfx* gfx)
 }
 #endif
 
-#ifdef ENABLE_VULKAN
+#ifdef HAS_VULKAN
 bool VRManager::CreateVulkanSession(::AbstractGfx* gfx)
 {
   if (!g_vulkan_context)
@@ -298,18 +340,107 @@ bool VRManager::CreateVulkanSession(::AbstractGfx* gfx)
     return false;
   }
 
+  // OpenXR requires calling xrGetVulkanGraphicsRequirementsKHR before creating a session
+  PFN_xrGetVulkanGraphicsRequirementsKHR xrGetVulkanGraphicsRequirementsKHR = nullptr;
+  XrResult result = xrGetInstanceProcAddr(
+      m_instance, "xrGetVulkanGraphicsRequirementsKHR",
+      reinterpret_cast<PFN_xrVoidFunction*>(&xrGetVulkanGraphicsRequirementsKHR));
+  if (XR_FAILED(result) || !xrGetVulkanGraphicsRequirementsKHR)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get xrGetVulkanGraphicsRequirementsKHR function pointer");
+    return false;
+  }
+
+  XrGraphicsRequirementsVulkanKHR graphics_requirements{XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR};
+  XR_CHECK(xrGetVulkanGraphicsRequirementsKHR(m_instance, m_system_id, &graphics_requirements),
+           "xrGetVulkanGraphicsRequirementsKHR");
+
+  INFO_LOG_FMT(VIDEO, "OpenXR Vulkan requirements: min version {}.{}.{}, max version {}.{}.{}",
+               VK_VERSION_MAJOR(graphics_requirements.minApiVersionSupported),
+               VK_VERSION_MINOR(graphics_requirements.minApiVersionSupported),
+               VK_VERSION_PATCH(graphics_requirements.minApiVersionSupported),
+               VK_VERSION_MAJOR(graphics_requirements.maxApiVersionSupported),
+               VK_VERSION_MINOR(graphics_requirements.maxApiVersionSupported),
+               VK_VERSION_PATCH(graphics_requirements.maxApiVersionSupported));
+
+  // Get the physical device OpenXR expects us to use
+  PFN_xrGetVulkanGraphicsDeviceKHR xrGetVulkanGraphicsDeviceKHR = nullptr;
+  result = xrGetInstanceProcAddr(
+      m_instance, "xrGetVulkanGraphicsDeviceKHR",
+      reinterpret_cast<PFN_xrVoidFunction*>(&xrGetVulkanGraphicsDeviceKHR));
+  if (XR_FAILED(result) || !xrGetVulkanGraphicsDeviceKHR)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to get xrGetVulkanGraphicsDeviceKHR function pointer");
+    return false;
+  }
+
+  VkPhysicalDevice xr_physical_device = VK_NULL_HANDLE;
+  result = xrGetVulkanGraphicsDeviceKHR(m_instance, m_system_id,
+                                        g_vulkan_context->GetVulkanInstance(),
+                                        &xr_physical_device);
+  if (XR_FAILED(result))
+  {
+    ERROR_LOG_FMT(VIDEO, "xrGetVulkanGraphicsDeviceKHR failed with code {}", static_cast<int>(result));
+    return false;
+  }
+
+  VkPhysicalDevice dolphin_physical_device = g_vulkan_context->GetPhysicalDevice();
+
+  // Log device info for debugging
+  INFO_LOG_FMT(VIDEO, "OpenXR expects physical device: {:p}", static_cast<void*>(xr_physical_device));
+  INFO_LOG_FMT(VIDEO, "Dolphin is using physical device: {:p}", static_cast<void*>(dolphin_physical_device));
+
+  if (xr_physical_device != dolphin_physical_device)
+  {
+    ERROR_LOG_FMT(VIDEO, "Physical device mismatch! OpenXR requires a different GPU than Dolphin is using.");
+    ERROR_LOG_FMT(VIDEO, "This can happen with multi-GPU systems. VR may not work correctly.");
+    // Continue anyway - it might still work if they're compatible
+  }
+
   XrGraphicsBindingVulkanKHR graphics_binding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
+  graphics_binding.next = nullptr;
   graphics_binding.instance = g_vulkan_context->GetVulkanInstance();
   graphics_binding.physicalDevice = g_vulkan_context->GetPhysicalDevice();
   graphics_binding.device = g_vulkan_context->GetDevice();
   graphics_binding.queueFamilyIndex = g_vulkan_context->GetGraphicsQueueFamilyIndex();
   graphics_binding.queueIndex = 0;
 
+  // Validate all handles before proceeding
+  if (graphics_binding.instance == VK_NULL_HANDLE)
+  {
+    ERROR_LOG_FMT(VIDEO, "VkInstance is null!");
+    return false;
+  }
+  if (graphics_binding.physicalDevice == VK_NULL_HANDLE)
+  {
+    ERROR_LOG_FMT(VIDEO, "VkPhysicalDevice is null!");
+    return false;
+  }
+  if (graphics_binding.device == VK_NULL_HANDLE)
+  {
+    ERROR_LOG_FMT(VIDEO, "VkDevice is null!");
+    return false;
+  }
+
+  INFO_LOG_FMT(VIDEO, "Creating OpenXR session with Vulkan binding:");
+  INFO_LOG_FMT(VIDEO, "  VkInstance: {:p}", static_cast<void*>(graphics_binding.instance));
+  INFO_LOG_FMT(VIDEO, "  VkPhysicalDevice: {:p}", static_cast<void*>(graphics_binding.physicalDevice));
+  INFO_LOG_FMT(VIDEO, "  VkDevice: {:p}", static_cast<void*>(graphics_binding.device));
+  INFO_LOG_FMT(VIDEO, "  queueFamilyIndex: {}", graphics_binding.queueFamilyIndex);
+  INFO_LOG_FMT(VIDEO, "  queueIndex: {}", graphics_binding.queueIndex);
+
   XrSessionCreateInfo session_info{XR_TYPE_SESSION_CREATE_INFO};
+  session_info.createFlags = 0;
   session_info.next = &graphics_binding;
   session_info.systemId = m_system_id;
 
-  XR_CHECK(xrCreateSession(m_instance, &session_info, &m_session), "xrCreateSession");
+  INFO_LOG_FMT(VIDEO, "Calling xrCreateSession...");
+  result = xrCreateSession(m_instance, &session_info, &m_session);
+  if (XR_FAILED(result))
+  {
+    ERROR_LOG_FMT(VIDEO, "xrCreateSession failed with code {}", static_cast<int>(result));
+    return false;
+  }
 
   INFO_LOG_FMT(VIDEO, "OpenXR Vulkan session created");
   return true;
@@ -421,7 +552,7 @@ bool VRManager::CreateSwapchains()
     }
 #endif
 
-#ifdef ENABLE_VULKAN
+#ifdef HAS_VULKAN
     if (api == APIType::Vulkan)
     {
       std::vector<XrSwapchainImageVulkanKHR> images(image_count,
@@ -525,55 +656,108 @@ void VRManager::SubmitFrame(::AbstractTexture* left_eye, ::AbstractTexture* righ
   if (!m_initialized || !m_session || !m_should_render)
     return;
 
-  // Copy left eye texture to swapchain
-  if (left_eye)
-    CopyTextureToSwapchain(left_eye, 0);
+  APIType api = g_backend_info.api_type;
+  bool textures_copied = false;
 
-  // Copy right eye texture to swapchain
-  if (right_eye)
-    CopyTextureToSwapchain(right_eye, 1);
-
-  // Create composition layers
-  XrCompositionLayerProjectionView projection_views[2] = {
-      {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
-      {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
-
-  for (int eye = 0; eye < 2; eye++)
+#ifdef HAS_OPENGL
+  if (api == APIType::OpenGL)
   {
-    projection_views[eye].pose.position.x = m_views[eye].position[0];
-    projection_views[eye].pose.position.y = m_views[eye].position[1];
-    projection_views[eye].pose.position.z = m_views[eye].position[2];
-    projection_views[eye].pose.orientation.x = m_views[eye].orientation[0];
-    projection_views[eye].pose.orientation.y = m_views[eye].orientation[1];
-    projection_views[eye].pose.orientation.z = m_views[eye].orientation[2];
-    projection_views[eye].pose.orientation.w = m_views[eye].orientation[3];
-    projection_views[eye].fov.angleLeft = m_views[eye].fov_left;
-    projection_views[eye].fov.angleRight = m_views[eye].fov_right;
-    projection_views[eye].fov.angleUp = m_views[eye].fov_up;
-    projection_views[eye].fov.angleDown = m_views[eye].fov_down;
+    // Copy left eye texture to swapchain
+    if (left_eye)
+      CopyTextureToSwapchain(left_eye, 0);
 
-    projection_views[eye].subImage.swapchain = m_swapchains[eye];
-    projection_views[eye].subImage.imageRect.offset = {0, 0};
-    projection_views[eye].subImage.imageRect.extent = {static_cast<int32_t>(m_swapchain_width),
-                                                        static_cast<int32_t>(m_swapchain_height)};
-    projection_views[eye].subImage.imageArrayIndex = 0;
+    // Copy right eye texture to swapchain
+    if (right_eye)
+      CopyTextureToSwapchain(right_eye, 1);
+
+    textures_copied = true;
   }
+#endif
 
-  XrCompositionLayerProjection projection_layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-  projection_layer.space = m_reference_space;
-  projection_layer.viewCount = 2;
-  projection_layer.views = projection_views;
+#ifdef HAS_VULKAN
+  if (api == APIType::Vulkan)
+  {
+    // TODO: Vulkan texture copy not yet implemented
+    // For now, we still need to acquire/wait/release the swapchain images
+    // but we won't submit layers since the images contain garbage
+    for (int eye = 0; eye < 2; eye++)
+    {
+      if (m_swapchain_images[eye].empty())
+        continue;
 
-  const XrCompositionLayerBaseHeader* layers[] = {
-      reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection_layer)};
+      XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+      uint32_t image_index = 0;
+      XrResult result = xrAcquireSwapchainImage(m_swapchains[eye], &acquire_info, &image_index);
+      if (XR_FAILED(result))
+        continue;
+
+      XrSwapchainImageWaitInfo wait_info{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+      wait_info.timeout = XR_INFINITE_DURATION;
+      xrWaitSwapchainImage(m_swapchains[eye], &wait_info);
+
+      // TODO: Actually copy the texture here using Vulkan commands
+
+      XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+      xrReleaseSwapchainImage(m_swapchains[eye], &release_info);
+    }
+
+    textures_copied = false;  // Don't submit layers with garbage images
+  }
+#endif
 
   XrFrameEndInfo end_info{XR_TYPE_FRAME_END_INFO};
   end_info.displayTime = m_frame_state_predicted_display_time;
   end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-  end_info.layerCount = 1;
-  end_info.layers = layers;
 
-  xrEndFrame(m_session, &end_info);
+  if (textures_copied)
+  {
+    // Create composition layers
+    XrCompositionLayerProjectionView projection_views[2] = {
+        {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
+        {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
+
+    for (int eye = 0; eye < 2; eye++)
+    {
+      projection_views[eye].pose.position.x = m_views[eye].position[0];
+      projection_views[eye].pose.position.y = m_views[eye].position[1];
+      projection_views[eye].pose.position.z = m_views[eye].position[2];
+      projection_views[eye].pose.orientation.x = m_views[eye].orientation[0];
+      projection_views[eye].pose.orientation.y = m_views[eye].orientation[1];
+      projection_views[eye].pose.orientation.z = m_views[eye].orientation[2];
+      projection_views[eye].pose.orientation.w = m_views[eye].orientation[3];
+      projection_views[eye].fov.angleLeft = m_views[eye].fov_left;
+      projection_views[eye].fov.angleRight = m_views[eye].fov_right;
+      projection_views[eye].fov.angleUp = m_views[eye].fov_up;
+      projection_views[eye].fov.angleDown = m_views[eye].fov_down;
+
+      projection_views[eye].subImage.swapchain = m_swapchains[eye];
+      projection_views[eye].subImage.imageRect.offset = {0, 0};
+      projection_views[eye].subImage.imageRect.extent = {static_cast<int32_t>(m_swapchain_width),
+                                                          static_cast<int32_t>(m_swapchain_height)};
+      projection_views[eye].subImage.imageArrayIndex = 0;
+    }
+
+    XrCompositionLayerProjection projection_layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    projection_layer.space = m_reference_space;
+    projection_layer.viewCount = 2;
+    projection_layer.views = projection_views;
+
+    const XrCompositionLayerBaseHeader* layers[] = {
+        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection_layer)};
+
+    end_info.layerCount = 1;
+    end_info.layers = layers;
+
+    xrEndFrame(m_session, &end_info);
+  }
+  else
+  {
+    // Submit empty frame - no layers to display
+    end_info.layerCount = 0;
+    end_info.layers = nullptr;
+
+    xrEndFrame(m_session, &end_info);
+  }
 }
 
 void VRManager::EndFrame()
@@ -586,20 +770,113 @@ void VRManager::CopyTextureToSwapchain(::AbstractTexture* src, int eye_index)
   if (!src || eye_index < 0 || eye_index >= 2)
     return;
 
+  if (m_swapchain_images[eye_index].empty())
+    return;
+
   // Acquire swapchain image
   XrSwapchainImageAcquireInfo acquire_info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
   uint32_t image_index = 0;
-  xrAcquireSwapchainImage(m_swapchains[eye_index], &acquire_info, &image_index);
+  XrResult result = xrAcquireSwapchainImage(m_swapchains[eye_index], &acquire_info, &image_index);
+  if (XR_FAILED(result))
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to acquire swapchain image for eye {}", eye_index);
+    return;
+  }
 
   // Wait for swapchain image to be ready
   XrSwapchainImageWaitInfo wait_info{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
   wait_info.timeout = XR_INFINITE_DURATION;
-  xrWaitSwapchainImage(m_swapchains[eye_index], &wait_info);
+  result = xrWaitSwapchainImage(m_swapchains[eye_index], &wait_info);
+  if (XR_FAILED(result))
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to wait for swapchain image for eye {}", eye_index);
+    XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    xrReleaseSwapchainImage(m_swapchains[eye_index], &release_info);
+    return;
+  }
 
-  // TODO: Implement actual texture copy using graphics API
-  // For OpenGL: use glBlitFramebuffer or glCopyImageSubData
-  // For Vulkan: use vkCmdBlitImage or vkCmdCopyImage
-  // This requires creating framebuffers/image views for the swapchain images
+  APIType api = g_backend_info.api_type;
+
+#ifdef HAS_OPENGL
+  if (api == APIType::OpenGL)
+  {
+    auto* ogl_texture = static_cast<OGL::OGLTexture*>(src);
+    GLuint src_texture = ogl_texture->GetGLTextureId();
+    GLenum src_target = ogl_texture->GetGLTarget();
+    GLuint dst_texture = static_cast<GLuint>(m_swapchain_images[eye_index][image_index]);
+
+    // Get source texture dimensions
+    u32 src_width = src->GetWidth();
+    u32 src_height = src->GetHeight();
+
+    // Save current framebuffer bindings
+    GLint prev_read_fbo = 0, prev_draw_fbo = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prev_read_fbo);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_draw_fbo);
+
+    // Create temporary framebuffers for the blit operation
+    GLuint src_fbo = 0, dst_fbo = 0;
+    glGenFramebuffers(1, &src_fbo);
+    glGenFramebuffers(1, &dst_fbo);
+
+    // Attach source texture to read framebuffer
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src_fbo);
+    if (src_target == GL_TEXTURE_2D_ARRAY || src_target == GL_TEXTURE_2D_MULTISAMPLE_ARRAY)
+    {
+      // For array textures, attach layer 0
+      glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, src_texture, 0, 0);
+    }
+    else
+    {
+      glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, src_target, src_texture, 0);
+    }
+
+    // Attach destination (swapchain) texture to draw framebuffer
+    // OpenXR swapchain textures are typically GL_TEXTURE_2D
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst_fbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           dst_texture, 0);
+
+    // Check framebuffer completeness
+    GLenum read_status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+    GLenum draw_status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+
+    if (read_status == GL_FRAMEBUFFER_COMPLETE && draw_status == GL_FRAMEBUFFER_COMPLETE)
+    {
+      // Perform the blit
+      glBlitFramebuffer(0, 0, src_width, src_height,
+                        0, 0, m_swapchain_width, m_swapchain_height,
+                        GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
+    else
+    {
+      if (read_status != GL_FRAMEBUFFER_COMPLETE)
+        ERROR_LOG_FMT(VIDEO, "VR read framebuffer incomplete: 0x{:X}", read_status);
+      if (draw_status != GL_FRAMEBUFFER_COMPLETE)
+        ERROR_LOG_FMT(VIDEO, "VR draw framebuffer incomplete: 0x{:X}", draw_status);
+    }
+
+    // Restore previous framebuffer bindings
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, prev_read_fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, prev_draw_fbo);
+
+    // Clean up temporary framebuffers
+    glDeleteFramebuffers(1, &src_fbo);
+    glDeleteFramebuffers(1, &dst_fbo);
+
+    // Ensure all GL commands complete before releasing to OpenXR
+    // Use glFinish() for stricter synchronization with the OpenXR compositor
+    glFinish();
+  }
+#endif
+
+#ifdef HAS_VULKAN
+  if (api == APIType::Vulkan)
+  {
+    // TODO: Implement Vulkan texture copy
+    // This requires command buffer recording and proper synchronization
+  }
+#endif
 
   // Release swapchain image
   XrSwapchainImageReleaseInfo release_info{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};

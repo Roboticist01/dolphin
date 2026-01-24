@@ -21,6 +21,12 @@ public:
 
   std::unique_ptr<GLContext> CreateSharedContext() override;
 
+  // OpenXR support - accessors for graphics binding
+  Display* GetDisplay() const { return m_display; }
+  GLXDrawable GetDrawable() const { return m_drawable; }
+  GLXContext GetContext() const { return m_context; }
+  GLXFBConfig GetFBConfig() const { return m_fbconfig; }
+
   bool MakeCurrent() override;
   bool ClearCurrent() override;
 

@@ -204,7 +204,7 @@ bool VRManager::CreateInstance()
   create_info.applicationInfo.applicationVersion = 1;
   std::strcpy(create_info.applicationInfo.engineName, "Dolphin");
   create_info.applicationInfo.engineVersion = 1;
-  create_info.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+  create_info.applicationInfo.apiVersion = XR_VERSION_1_0;
   create_info.enabledExtensionCount = static_cast<uint32_t>(requested_extensions.size());
   create_info.enabledExtensionNames = requested_extensions.data();
 
